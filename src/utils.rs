@@ -83,10 +83,17 @@ impl<T> ReceiverQueued<T> {
 
 #[derive(Debug)]
 pub enum VcdError {
+    Io(std::io::Error),
     Lexer(LexerPosition),
     Tokenizer(TokenizerError),
     Parser(ParserError),
     Waveform(WaveformError),
+}
+
+impl From<std::io::Error> for VcdError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
 }
 
 impl From<TokenizerError> for VcdError {
@@ -119,6 +126,7 @@ pub fn load_single_threaded(
     bytes: String,
     status: &mut dyn FnMut((usize, usize)),
 ) -> VcdResult<(VcdHeader, Waveform)> {
+    log::debug!("Loading VCD (single-threaded)...");
     let file_size = bytes.as_bytes().len();
     let mut lexer = Lexer::new(&bytes);
     let mut tokenizer = Tokenizer::new(&bytes);
@@ -126,6 +134,7 @@ pub fn load_single_threaded(
     let mut waveform = Waveform::new();
     parser.parse_header(&mut |bs| tokenizer.next(lexer.next_token()?, bs))?;
     parser.get_header().initialize_waveform(&mut waveform);
+    log::debug!("Header parsed...");
     let mut last_index = lexer.get_position().get_index();
     status((last_index, file_size));
     loop {
@@ -145,6 +154,7 @@ pub fn load_single_threaded(
             status((last_index, file_size));
         }
     }
+    log::debug!("VCD loaded!");
     Ok((parser.into_header(), waveform))
 }
 
@@ -157,7 +167,10 @@ pub fn load_multi_threaded(
     let queue_limit = 4096;
     let file_size = bytes.as_bytes().len();
 
-    thread::spawn(move || {
+    let status_clean = status.clone();
+
+    let loader_fn = move || {
+        log::debug!("Loading VCD (multi-threaded)...");
         // Create a tokenizer and parser for the file
         let mut lexer = Lexer::new(&bytes);
         let mut tokenizer = Tokenizer::new(&bytes);
@@ -167,6 +180,7 @@ pub fn load_multi_threaded(
         parser.parse_header(&mut |bs| tokenizer.next(lexer.next_token()?, bs))?;
         parser.get_header().initialize_waveform(&mut waveform);
         *status.lock().unwrap() = (lexer.get_position().get_index(), file_size);
+        log::debug!("Header parsed...");
 
         // Spawn threads for lexing, parsing/tokenizing, and assembling the waveform
         let (tx_lexer, rx_lexer) = bounded::<Vec<LexerToken>>(channel_limit);
@@ -268,6 +282,21 @@ pub fn load_multi_threaded(
         for handle in waveform_handles {
             waveform_shards.push(handle.join().unwrap()?);
         }
-        Ok((parser.into_header(), Waveform::unshard(waveform_shards)?))
+        log::debug!("Body parsed...");
+        let waveform = Waveform::unshard(waveform_shards)?;
+        log::debug!("Shards combined...");
+        Ok((parser.into_header(), waveform))
+    };
+
+    thread::spawn(move || match loader_fn() {
+        Ok(ok) => {
+            log::debug!("VCD loaded!");
+            Ok(ok)
+        }
+        Err(err) => {
+            log::error!("VCD error: {err:?}");
+            *status_clean.lock().unwrap() = (file_size, file_size);
+            Err(err)
+        }
     })
 }
