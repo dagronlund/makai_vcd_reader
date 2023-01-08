@@ -1,85 +1,14 @@
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use crossbeam::channel::bounded;
-use crossbeam::channel::{Receiver, RecvError, SendError, Sender};
-
-use waveform_db::errors::*;
-use waveform_db::Waveform;
+use makai::utils::crossbeam::{ReceiverQueued, SenderQueued};
+use makai_waveform_db::{errors::WaveformError, Waveform};
 
 use crate::errors::*;
 use crate::lexer::{position::LexerPosition, Lexer, LexerToken};
-use crate::parser::{VcdEntry, VcdHeader, VcdParser};
+use crate::parser::{VcdEntry, VcdHeader, VcdReader};
 use crate::tokenizer::Tokenizer;
-
-struct SenderQueued<T> {
-    sender: Sender<Vec<T>>,
-    queue: Vec<T>,
-}
-
-impl<T> SenderQueued<T> {
-    fn new(sender: Sender<Vec<T>>, limit: usize) -> Self {
-        Self {
-            sender,
-            queue: Vec::with_capacity(limit),
-        }
-    }
-
-    fn send(&mut self, value: T) -> Result<(), SendError<Vec<T>>> {
-        self.queue.push(value);
-        self.flush()
-    }
-
-    fn flush(&mut self) -> Result<(), SendError<Vec<T>>> {
-        if self.queue.len() >= self.queue.capacity() {
-            let mut queue_swap = Vec::with_capacity(self.queue.capacity());
-            std::mem::swap(&mut self.queue, &mut queue_swap);
-            self.sender.send(queue_swap)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn finish(self) -> Result<(), SendError<Vec<T>>> {
-        if !self.queue.is_empty() {
-            self.sender.send(self.queue)?;
-            self.sender.send(Vec::new())
-        } else {
-            self.sender.send(self.queue)
-        }
-    }
-}
-
-struct ReceiverQueued<T> {
-    receiver: Receiver<Vec<T>>,
-    queue: VecDeque<T>,
-    done: bool,
-}
-
-impl<T> ReceiverQueued<T> {
-    fn new(receiver: Receiver<Vec<T>>) -> Self {
-        Self {
-            receiver,
-            queue: VecDeque::new(),
-            done: false,
-        }
-    }
-
-    fn recv(&mut self) -> Result<Option<T>, RecvError> {
-        if self.done {
-            return Ok(None);
-        }
-        if self.queue.is_empty() {
-            self.queue = VecDeque::from(self.receiver.recv()?);
-            if self.queue.is_empty() {
-                self.done = true;
-                return Ok(None);
-            }
-        }
-        Ok(self.queue.pop_front())
-    }
-}
 
 #[derive(Debug)]
 pub enum VcdError {
@@ -130,7 +59,7 @@ pub fn load_single_threaded(
     let file_size = bytes.as_bytes().len();
     let mut lexer = Lexer::new(&bytes);
     let mut tokenizer = Tokenizer::new(&bytes);
-    let mut parser = VcdParser::new();
+    let mut parser = VcdReader::new();
     let mut waveform = Waveform::new();
     parser.parse_header(&mut |bs| tokenizer.next(lexer.next_token()?, bs))?;
     parser.get_header().initialize_waveform(&mut waveform);
@@ -174,7 +103,7 @@ pub fn load_multi_threaded(
         // Create a tokenizer and parser for the file
         let mut lexer = Lexer::new(&bytes);
         let mut tokenizer = Tokenizer::new(&bytes);
-        let mut parser = VcdParser::new();
+        let mut parser = VcdReader::new();
         let mut waveform = Waveform::new();
         *status.lock().unwrap() = (lexer.get_position().get_index(), file_size);
         parser.parse_header(&mut |bs| tokenizer.next(lexer.next_token()?, bs))?;

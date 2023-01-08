@@ -10,17 +10,16 @@ use indicatif::ProgressBar;
 use log::*;
 use simple_logger::SimpleLogger;
 
-use byte_storage::ByteStorage;
-
-use vcd_parser::errors::*;
-use vcd_parser::lexer::position::*;
-use vcd_parser::lexer::*;
-use vcd_parser::parser::*;
-use vcd_parser::tokenizer::token::*;
-use vcd_parser::tokenizer::*;
-use vcd_parser::utils::*;
-use waveform_db::errors::*;
-use waveform_db::*;
+use makai::utils::bytes::ByteStorage;
+use makai_vcd_reader::errors::*;
+use makai_vcd_reader::lexer::position::*;
+use makai_vcd_reader::lexer::*;
+use makai_vcd_reader::parser::*;
+use makai_vcd_reader::tokenizer::token::*;
+use makai_vcd_reader::tokenizer::*;
+use makai_vcd_reader::utils::*;
+use makai_waveform_db::errors::*;
+use makai_waveform_db::*;
 
 pub struct ProgressBarLimiter {
     pb: ProgressBar,
@@ -207,7 +206,7 @@ fn test_parser() -> TestResult<()> {
     let start = Instant::now();
     let mut lexer = Lexer::new(&bytes);
     let mut tokenizer = Tokenizer::new(&bytes);
-    let mut parser = VcdParser::new();
+    let mut parser = VcdReader::new();
     parser.parse_header(&mut |bs| tokenizer.next(lexer.next_token()?, bs))?;
     info!("Parsing header done! ({:?})", start.elapsed());
     let start = Instant::now();
@@ -258,7 +257,7 @@ fn test_waveform() -> TestResult<()> {
     let start = Instant::now();
     let mut lexer = Lexer::new(&bytes);
     let mut tokenizer = Tokenizer::new(&bytes);
-    let mut parser = VcdParser::new();
+    let mut parser = VcdReader::new();
     info!("Parsing header...");
     parser.parse_header(&mut |bs| tokenizer.next(lexer.next_token()?, bs))?;
     info!("Parsing header done! ({:?})", start.elapsed());

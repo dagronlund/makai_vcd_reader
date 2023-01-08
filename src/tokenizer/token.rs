@@ -1,8 +1,8 @@
 use std::io;
 
-use byte_storage::ByteStorage;
-use indiscriminant::*;
-use waveform_db::bitvector::BitVector;
+use indiscriminant::indiscriminant;
+use makai::utils::bytes::ByteStorage;
+use makai_waveform_db::bitvector::BitVector;
 
 use crate::lexer::position::*;
 

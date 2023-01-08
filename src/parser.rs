@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
-use byte_storage::ByteStorage;
-use waveform_db::bitvector::BitVector;
-use waveform_db::Waveform;
+use makai::utils::bytes::ByteStorage;
+use makai_waveform_db::{bitvector::BitVector, Waveform};
 
 use crate::errors::*;
 use crate::lexer::position::LexerPosition;
@@ -324,13 +323,13 @@ impl Default for VcdHeader {
     }
 }
 
-pub struct VcdParser {
+pub struct VcdReader {
     bs: ByteStorage,
     header: VcdHeader,
     scope_depth: usize,
 }
 
-impl VcdParser {
+impl VcdReader {
     pub fn new() -> Self {
         Self {
             bs: ByteStorage::new(),
@@ -473,7 +472,7 @@ impl VcdParser {
     }
 }
 
-impl Default for VcdParser {
+impl Default for VcdReader {
     fn default() -> Self {
         Self::new()
     }

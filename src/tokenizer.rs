@@ -4,10 +4,9 @@ use core::ops::Range;
 use std::io;
 use std::str;
 
-use byte_storage::ByteStorage;
 use bytes::Bytes;
-
-use waveform_db::bitvector::BitVector;
+use makai::utils::bytes::ByteStorage;
+use makai_waveform_db::bitvector::BitVector;
 
 use crate::errors::*;
 use crate::lexer::position::*;

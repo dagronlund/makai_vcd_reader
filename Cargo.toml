@@ -1,17 +1,22 @@
 [package]
-name = "vcd_parser"
+name = "makai_vcd_reader"
 version = "0.1.0"
+authors = ["David Gronlund"]
 edition = "2021"
+description = "VCD file reader"
+readme = "README.md"
+repository = "https://github.com/dagronlund/makai_vcd_reader"
+license = "MIT"
+keywords = ["eda", "vcd"]
 
 [dependencies]
 bytes = "1.1.0"
 logos = "0.12.0"
-serde = {version = "1.0.145", features = ["derive"]}
+crossbeam = "0.8.1"
 log = "0.4.0"
 indiscriminant = "0.2.0"
-byte_storage = { path = "../byte_storage" }
-waveform_db = { path = "../waveform_db" }
-crossbeam = "0.8.1"
+makai = "0.1.0"
+makai_waveform_db = "0.1.0"
 
 [dev-dependencies]
 simple_logger = "2.3.0"
