@@ -255,6 +255,7 @@ impl VcdHeader {
         }
     }
 
+    /// Initializes the specified waveform object with the variables defined by this header
     pub fn initialize_waveform(&self, waveform: &mut Waveform) {
         for (idcode, width) in self.get_idcodes_map().iter() {
             match width {
@@ -268,10 +269,15 @@ impl VcdHeader {
         }
     }
 
+    /// Returns a reference to all scopes in this header, and each of those scopes may or may not
+    /// contain variables or other scopes
     pub fn get_scopes(&self) -> &Vec<VcdScope> {
         &self.scopes
     }
 
+    /// Returns a scope that matches the given path, where nested scopes can be specified with dots
+    /// i.e. `get_scope("foo.bar")` will return the scope of name "bar" contained in the scope of
+    /// name "foo"
     pub fn get_scope(&self, path: &str) -> Option<&VcdScope> {
         let sections: Vec<&str> = path.split('.').collect();
         for scope in &self.scopes {
@@ -288,6 +294,9 @@ impl VcdHeader {
         None
     }
 
+    /// Returns a variable that matches the given path, where the nesting scopes can be specified
+    /// with dots i.e. `get_variable("foo.test")` will return the variable of name "test" contained
+    /// in the scope of name "foo"
     pub fn get_variable(&self, path: &str) -> Option<&VcdVariable> {
         let sections: Vec<&str> = path.split('.').collect();
         for scope in &self.scopes {

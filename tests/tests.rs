@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use colored::*;
@@ -11,6 +10,7 @@ use log::*;
 use simple_logger::SimpleLogger;
 
 use makai::utils::bytes::ByteStorage;
+use makai::utils::messages::Messages;
 use makai_vcd_reader::errors::*;
 use makai_vcd_reader::lexer::position::*;
 use makai_vcd_reader::lexer::*;
@@ -157,7 +157,6 @@ fn test_tokenizer() -> TestResult<()> {
     let bar = ProgressBarLimiter::new(file_usize, 200);
 
     let bytes = fs::read_to_string(fname)?;
-    // let mut file = BufWriter::with_capacity(1 << 20, tempfile::tempfile()?);
 
     let start = Instant::now();
     let mut lexer = Lexer::new(&bytes);
@@ -425,17 +424,22 @@ fn test_perf() -> TestResult<()> {
     let start = Instant::now();
     let bar = ProgressBarLimiter::new(file_size as u64, 200);
     bar.set_position(0);
-    let status = Arc::new(Mutex::new((0, 0)));
-    let handle = load_multi_threaded(bytes, 4, status.clone());
-    loop {
-        let (pos, total) = *status.lock().unwrap();
-        bar.set_position(pos as u64);
-        if pos >= total && total > 0 {
-            break;
+    let messages = Messages::new();
+    let handle = load_multi_threaded(bytes, 4, messages.clone());
+    let (_, waveform) = loop {
+        let mut result = None;
+        for messages in messages.get::<VcdLoaderMessage>() {
+            match messages {
+                VcdLoaderMessage::Status { index, total: _ } => bar.set_position(index as u64),
+                VcdLoaderMessage::Done(r) => result = Some(r?),
+            }
+        }
+        if let Some(result) = result {
+            break result;
         }
         thread::sleep(std::time::Duration::from_millis(10));
-    }
-    let (_, waveform) = handle.join().unwrap()?;
+    };
+    handle.join().unwrap();
     bar.finish();
     let elapsed = start.elapsed();
     info!(
@@ -468,8 +472,6 @@ fn test_perf() -> TestResult<()> {
 
 #[test]
 fn test_waveform_search() -> TestResult<()> {
-    use std::thread;
-
     let _ = SimpleLogger::new().env().init();
     info!("test_waveform_search...");
     let fname = "res/gecko.vcd";
@@ -479,17 +481,21 @@ fn test_waveform_search() -> TestResult<()> {
     let file_size = bytes.as_bytes().len();
     let bar = ProgressBarLimiter::new(file_size as u64, 200);
     bar.set_position(0);
-    let status = Arc::new(Mutex::new((0, 0)));
-    let handle = load_multi_threaded(bytes, 4, status.clone());
-    loop {
-        let (pos, total) = *status.lock().unwrap();
-        bar.set_position(pos as u64);
-        if pos >= total && total > 0 {
-            break;
+    let messages = Messages::new();
+    let handle = load_multi_threaded(bytes, 4, messages.clone());
+    let (header, waveform) = loop {
+        let mut result = None;
+        for messages in messages.get::<VcdLoaderMessage>() {
+            match messages {
+                VcdLoaderMessage::Status { index, total: _ } => bar.set_position(index as u64),
+                VcdLoaderMessage::Done(r) => result = Some(r?),
+            }
         }
-        thread::sleep(std::time::Duration::from_millis(10));
-    }
-    let (header, waveform) = handle.join().unwrap()?;
+        if let Some(result) = result {
+            break result;
+        }
+    };
+    handle.join().unwrap();
     bar.finish();
 
     let _scope = header.get_scope("TOP.gecko_nano_wrapper").unwrap();

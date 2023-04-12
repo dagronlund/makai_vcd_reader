@@ -1,8 +1,8 @@
-use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use crossbeam::channel::bounded;
 use makai::utils::crossbeam::{ReceiverQueued, SenderQueued};
+use makai::utils::messages::Messages;
 use makai_waveform_db::{errors::WaveformError, Waveform};
 
 use crate::errors::*;
@@ -51,6 +51,11 @@ impl From<WaveformError> for VcdError {
 
 pub type VcdResult<T> = Result<T, VcdError>;
 
+pub enum VcdLoaderMessage {
+    Status { index: usize, total: usize },
+    Done(VcdResult<(VcdHeader, Waveform)>),
+}
+
 pub fn load_single_threaded(
     bytes: String,
     status: &mut dyn FnMut((usize, usize)),
@@ -90,13 +95,15 @@ pub fn load_single_threaded(
 pub fn load_multi_threaded(
     bytes: String,
     waveform_threads: usize,
-    status: Arc<Mutex<(usize, usize)>>,
-) -> JoinHandle<VcdResult<(VcdHeader, Waveform)>> {
+    messages: Messages,
+    // status: Arc<Mutex<(usize, usize)>>,
+) -> JoinHandle<()> {
     let channel_limit = 1024;
     let queue_limit = 4096;
-    let file_size = bytes.as_bytes().len();
+    let total = bytes.as_bytes().len();
 
-    let status_clean = status.clone();
+    // let status_clean = status.clone();
+    let messsages_clone = messages.clone();
 
     let loader_fn = move || {
         log::debug!("Loading VCD (multi-threaded)...");
@@ -105,10 +112,16 @@ pub fn load_multi_threaded(
         let mut tokenizer = Tokenizer::new(&bytes);
         let mut parser = VcdReader::new();
         let mut waveform = Waveform::new();
-        *status.lock().unwrap() = (lexer.get_position().get_index(), file_size);
+        messages.push(VcdLoaderMessage::Status {
+            index: lexer.get_position().get_index(),
+            total,
+        });
         parser.parse_header(&mut |bs| tokenizer.next(lexer.next_token()?, bs))?;
         parser.get_header().initialize_waveform(&mut waveform);
-        *status.lock().unwrap() = (lexer.get_position().get_index(), file_size);
+        messages.push(VcdLoaderMessage::Status {
+            index: lexer.get_position().get_index(),
+            total,
+        });
         log::debug!("Header parsed...");
 
         // Spawn threads for lexing, parsing/tokenizing, and assembling the waveform
@@ -189,14 +202,13 @@ pub fn load_multi_threaded(
                 Ok(Some(lexer_token)) => {
                     tx_lexer.send(lexer_token).unwrap();
                     let index = lexer.get_position().get_index();
-                    if (index - last_index) * 200 / file_size > 0 {
-                        *status.lock().unwrap() = (index, file_size);
+                    if (index - last_index) * 200 / total > 0 {
+                        messages.push(VcdLoaderMessage::Status { index, total });
                         last_index = index;
                     }
                 }
                 Ok(None) => {
                     tx_lexer.finish().unwrap();
-                    *status.lock().unwrap() = (file_size, file_size);
                     break;
                 }
                 Err(err) => {
@@ -217,15 +229,16 @@ pub fn load_multi_threaded(
         Ok((parser.into_header(), waveform))
     };
 
-    thread::spawn(move || match loader_fn() {
-        Ok(ok) => {
-            log::debug!("VCD loaded!");
-            Ok(ok)
+    thread::spawn(move || {
+        let result = loader_fn();
+        messsages_clone.push(VcdLoaderMessage::Status {
+            index: total,
+            total,
+        });
+        match &result {
+            Ok(_) => log::debug!("VCD loaded!"),
+            Err(err) => log::error!("VCD error: {err:?}"),
         }
-        Err(err) => {
-            log::error!("VCD error: {err:?}");
-            *status_clean.lock().unwrap() = (file_size, file_size);
-            Err(err)
-        }
+        messsages_clone.push(VcdLoaderMessage::Done(result));
     })
 }
